@@ -79,9 +79,29 @@ class HTMLParser:
         self._documentEncoding: Optional[str] = None
         self._errors: list[tuple[Any, ...]] = []
 
+    def _get_tree_builder(self) -> Any:
+        from markuptree.treebuilders import getTreeBuilder
+        return getTreeBuilder(self._tree)
+
     def parse(self, stream: Any, *args: Any, **kwargs: Any) -> Any:
-        """Parse a full HTML document."""
-        raise NotImplementedError("HTMLParser.parse not yet implemented")
+        """Parse a full HTML document and return the tree."""
+        from markuptree.inputstream import HTMLInputStream
+        from markuptree.tokenizer import HTMLTokenizer
+
+        TB = self._get_tree_builder()
+        tb = TB(namespaceHTMLElements=self.namespaceHTMLElements)
+
+        input_stream = HTMLInputStream(stream)
+        self._documentEncoding = input_stream.documentEncoding
+
+        tokenizer = HTMLTokenizer(input_stream)
+        for token in tokenizer:
+            ttype = token.get("type")
+            if ttype == "ParseError":
+                self._errors.append((token.get("data", ""),))
+            tb.processToken(token)
+
+        return tb.getDocument()
 
     def parseFragment(
         self,
@@ -91,10 +111,24 @@ class HTMLParser:
         scripting: bool = False,
         **kwargs: Any,
     ) -> Any:
-        """Parse an HTML fragment."""
-        raise NotImplementedError(
-            "HTMLParser.parseFragment not yet implemented"
-        )
+        """Parse an HTML fragment and return a list of nodes."""
+        from markuptree.inputstream import HTMLInputStream
+        from markuptree.tokenizer import HTMLTokenizer
+
+        TB = self._get_tree_builder()
+        tb = TB(namespaceHTMLElements=self.namespaceHTMLElements)
+
+        input_stream = HTMLInputStream(stream)
+        self._documentEncoding = input_stream.documentEncoding
+
+        tokenizer = HTMLTokenizer(input_stream)
+        for token in tokenizer:
+            ttype = token.get("type")
+            if ttype == "ParseError":
+                self._errors.append((token.get("data", ""),))
+            tb.processToken(token)
+
+        return tb.getFragment()
 
     @property
     def documentEncoding(self) -> Optional[str]:
