@@ -55,9 +55,11 @@ def serialize(
     tree: str = "etree",
     encoding: Optional[str] = None,
     **serializer_opts: Any,
-) -> Any:
+) -> str:
     """Serialize a tree to an HTML string."""
-    raise NotImplementedError("serialize not yet implemented")
+    from markuptree.serializer import serialize as _serialize
+
+    return _serialize(input, tree=tree, encoding=encoding, **serializer_opts)
 
 
 class HTMLParser:
