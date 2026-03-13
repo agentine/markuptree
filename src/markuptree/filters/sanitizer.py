@@ -62,7 +62,7 @@ _URI_ATTRS = frozenset(["action", "background", "cite", "href", "longdesc", "src
 
 # Safe URI schemes.
 _SAFE_SCHEMES = frozenset([
-    "http", "https", "mailto", "ftp", "ftps", "tel", "data",
+    "http", "https", "mailto", "ftp", "ftps", "tel",
 ])
 
 

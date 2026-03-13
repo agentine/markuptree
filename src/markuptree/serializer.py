@@ -124,12 +124,23 @@ class HTMLSerializer:
             elif ttype in ("Characters", "SpaceCharacters"):
                 data = token["data"]
                 if in_cdata:
+                    # Escape closing tags inside script/style to prevent
+                    # injection of </script> or </style> sequences.
+                    data = re.sub(
+                        r"</(script|style)",
+                        r"<\/\1",
+                        data,
+                        flags=re.IGNORECASE,
+                    )
                     yield data
                 else:
                     yield _escape_text(data)
 
             elif ttype == "Comment":
                 data = token.get("data", "")
+                # Sanitize comment content to prevent breaking out of
+                # the comment with --> sequences.
+                data = data.replace("--", "- -")
                 yield f"<!--{data}-->"
 
             elif ttype == "Entity":
