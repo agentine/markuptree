@@ -450,3 +450,219 @@ class TestBaseFilter:
         ]
         filtered = list(BaseFilter(tokens))
         assert filtered == tokens
+
+
+# ---------------------------------------------------------------------------
+# BOM detection order
+# ---------------------------------------------------------------------------
+
+class TestBOMDetection:
+    def test_utf32_le_not_misdetected_as_utf16_le(self) -> None:
+        """UTF-32-LE BOM (ff fe 00 00) must not be detected as UTF-16-LE."""
+        result = HTMLInputStream._detect_bom(b"\xff\xfe\x00\x00some data")
+        assert result == "utf-32-le"
+
+    def test_utf32_be(self) -> None:
+        result = HTMLInputStream._detect_bom(b"\x00\x00\xfe\xffsome data")
+        assert result == "utf-32-be"
+
+    def test_utf16_le(self) -> None:
+        result = HTMLInputStream._detect_bom(b"\xff\xfeX\x00")
+        assert result == "utf-16-le"
+
+    def test_utf16_be(self) -> None:
+        result = HTMLInputStream._detect_bom(b"\xfe\xff\x00X")
+        assert result == "utf-16-be"
+
+    def test_utf8_bom(self) -> None:
+        result = HTMLInputStream._detect_bom(b"\xef\xbb\xbfhello")
+        assert result == "utf-8"
+
+    def test_no_bom(self) -> None:
+        result = HTMLInputStream._detect_bom(b"hello")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Serializer filter integration
+# ---------------------------------------------------------------------------
+
+class TestSerializerFilterIntegration:
+    """Verify that serializer options activate their corresponding filters."""
+
+    def test_sanitize_strips_script(self) -> None:
+        """sanitize=True should strip script tags via the sanitizer filter."""
+        doc = _parse_etree("<p>safe</p><script>alert(1)</script>")
+        walker = EtreeWalker(doc)
+        s = HTMLSerializer(sanitize=True, omit_optional_tags=False)
+        result = s.render(walker)
+        assert "alert" not in result
+        assert "safe" in result
+
+    def test_sanitize_false_keeps_script(self) -> None:
+        doc = _parse_etree("<p>safe</p><script>code()</script>")
+        walker = EtreeWalker(doc)
+        s = HTMLSerializer(sanitize=False, omit_optional_tags=False)
+        result = s.render(walker)
+        assert "code()" in result
+
+    def test_strip_whitespace_collapses(self) -> None:
+        """strip_whitespace=True should collapse whitespace runs."""
+        tokens = [
+            {"type": "StartTag", "name": "p", "data": {}},
+            {"type": "Characters", "data": "hello   world"},
+            {"type": "EndTag", "name": "p"},
+        ]
+        s = HTMLSerializer(strip_whitespace=True, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "hello world" in result
+        assert "hello   world" not in result
+
+    def test_strip_whitespace_false(self) -> None:
+        tokens = [
+            {"type": "StartTag", "name": "p", "data": {}},
+            {"type": "Characters", "data": "hello   world"},
+            {"type": "EndTag", "name": "p"},
+        ]
+        s = HTMLSerializer(strip_whitespace=False, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "hello   world" in result
+
+    def test_inject_meta_charset(self) -> None:
+        """inject_meta_charset=True should add meta charset after head."""
+        doc = _parse_etree("<html><head></head><body>x</body></html>")
+        walker = EtreeWalker(doc)
+        s = HTMLSerializer(inject_meta_charset=True, omit_optional_tags=False)
+        result = s.render(walker)
+        assert "charset" in result.lower()
+
+    def test_inject_meta_charset_false(self) -> None:
+        tokens = [
+            {"type": "StartTag", "name": "head", "data": {}},
+            {"type": "EndTag", "name": "head"},
+        ]
+        s = HTMLSerializer(inject_meta_charset=False, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "charset" not in result.lower()
+
+    def test_omit_optional_tags_true(self) -> None:
+        """omit_optional_tags=True should omit li end tags before siblings."""
+        tokens = [
+            {"type": "StartTag", "namespace": None, "name": "ul", "data": {}},
+            {"type": "StartTag", "namespace": None, "name": "li", "data": {}},
+            {"type": "Characters", "data": "a"},
+            {"type": "EndTag", "namespace": None, "name": "li"},
+            {"type": "StartTag", "namespace": None, "name": "li", "data": {}},
+            {"type": "Characters", "data": "b"},
+            {"type": "EndTag", "namespace": None, "name": "li"},
+            {"type": "EndTag", "namespace": None, "name": "ul"},
+        ]
+        s = HTMLSerializer(omit_optional_tags=True)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result.count("</li>") < 2
+
+    def test_omit_optional_tags_false(self) -> None:
+        tokens = [
+            {"type": "StartTag", "namespace": None, "name": "ul", "data": {}},
+            {"type": "StartTag", "namespace": None, "name": "li", "data": {}},
+            {"type": "Characters", "data": "a"},
+            {"type": "EndTag", "namespace": None, "name": "li"},
+            {"type": "StartTag", "namespace": None, "name": "li", "data": {}},
+            {"type": "Characters", "data": "b"},
+            {"type": "EndTag", "namespace": None, "name": "li"},
+            {"type": "EndTag", "namespace": None, "name": "ul"},
+        ]
+        s = HTMLSerializer(omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result.count("</li>") == 2
+
+
+# ---------------------------------------------------------------------------
+# resolve_entities
+# ---------------------------------------------------------------------------
+
+class TestResolveEntities:
+    def test_resolve_entities_true(self) -> None:
+        """resolve_entities=True should replace entity names with characters."""
+        tokens = [{"type": "Entity", "name": "amp"}]
+        s = HTMLSerializer(resolve_entities=True, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result == "&"
+        assert "&amp;" not in result
+
+    def test_resolve_entities_false(self) -> None:
+        """resolve_entities=False should keep entity references as-is."""
+        tokens = [{"type": "Entity", "name": "amp"}]
+        s = HTMLSerializer(resolve_entities=False, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result == "&amp;"
+
+    def test_resolve_entities_lt(self) -> None:
+        tokens = [{"type": "Entity", "name": "lt"}]
+        s = HTMLSerializer(resolve_entities=True, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result == "<"
+
+    def test_resolve_entities_named(self) -> None:
+        tokens = [{"type": "Entity", "name": "copy"}]
+        s = HTMLSerializer(resolve_entities=True, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result == "\u00a9"
+
+    def test_resolve_entities_unknown_fallback(self) -> None:
+        """Unknown entity names should fall back to &name; reference."""
+        tokens = [{"type": "Entity", "name": "notarealentity"}]
+        s = HTMLSerializer(resolve_entities=True, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert result == "&notarealentity;"
+
+
+# ---------------------------------------------------------------------------
+# escape_rcdata
+# ---------------------------------------------------------------------------
+
+class TestEscapeRCData:
+    def test_escape_rcdata_true(self) -> None:
+        """escape_rcdata=True should escape < in textarea/title content."""
+        tokens = [
+            {"type": "StartTag", "name": "textarea", "data": {}},
+            {"type": "Characters", "data": "a<b"},
+            {"type": "EndTag", "name": "textarea"},
+        ]
+        s = HTMLSerializer(escape_rcdata=True, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "&lt;" in result
+
+    def test_escape_rcdata_false(self) -> None:
+        """escape_rcdata=False should emit RCDATA content as-is."""
+        tokens = [
+            {"type": "StartTag", "name": "textarea", "data": {}},
+            {"type": "Characters", "data": "a<b"},
+            {"type": "EndTag", "name": "textarea"},
+        ]
+        s = HTMLSerializer(escape_rcdata=False, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "a<b" in result
+        assert "&lt;" not in result
+
+    def test_escape_rcdata_title(self) -> None:
+        """RCDATA handling should also apply to title elements."""
+        tokens = [
+            {"type": "StartTag", "name": "title", "data": {}},
+            {"type": "Characters", "data": "a<b"},
+            {"type": "EndTag", "name": "title"},
+        ]
+        s = HTMLSerializer(escape_rcdata=False, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "a<b" in result
+
+    def test_non_rcdata_always_escapes(self) -> None:
+        """Normal text outside RCDATA elements should always be escaped."""
+        tokens = [
+            {"type": "StartTag", "name": "p", "data": {}},
+            {"type": "Characters", "data": "a<b"},
+            {"type": "EndTag", "name": "p"},
+        ]
+        s = HTMLSerializer(escape_rcdata=False, omit_optional_tags=False)
+        result = "".join(s.serialize(iter(tokens)))
+        assert "&lt;" in result

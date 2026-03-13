@@ -234,14 +234,16 @@ class HTMLInputStream:
     def _detect_bom(data: bytes) -> Optional[str]:
         if data[:3] == b"\xef\xbb\xbf":
             return "utf-8"
-        if data[:2] == b"\xff\xfe":
-            return "utf-16-le"
-        if data[:2] == b"\xfe\xff":
-            return "utf-16-be"
+        # Check 4-byte BOMs before 2-byte BOMs: UTF-32-LE starts with
+        # the same two bytes as UTF-16-LE (\xff\xfe).
         if data[:4] == b"\x00\x00\xfe\xff":
             return "utf-32-be"
         if data[:4] == b"\xff\xfe\x00\x00":
             return "utf-32-le"
+        if data[:2] == b"\xff\xfe":
+            return "utf-16-le"
+        if data[:2] == b"\xfe\xff":
+            return "utf-16-be"
         return None
 
     @staticmethod

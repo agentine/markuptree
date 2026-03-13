@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html.entities
 import re
 from typing import Any, Dict, Iterator, Optional
 
@@ -9,6 +10,7 @@ from markuptree.constants import (
     booleanAttributes,
     namespaces,
     prefixes,
+    rcdataElements,
     spaceCharacters,
     voidElements,
 )
@@ -82,12 +84,32 @@ class HTMLSerializer:
                 raise TypeError(f"Unknown option: {k!r}")
         self.errors: list[str] = []
 
+    def _apply_filters(self, treewalker: Any, encoding: Optional[str] = None) -> Any:
+        """Wrap the token stream through filter classes based on options."""
+        source = treewalker
+        if self.inject_meta_charset:
+            from markuptree.filters.inject_meta_charset import Filter as MetaFilter
+            source = MetaFilter(source, encoding=encoding or "utf-8")
+        if self.sanitize:
+            from markuptree.filters.sanitizer import Filter as SanFilter
+            source = SanFilter(source)
+        if self.strip_whitespace:
+            from markuptree.filters.whitespace import Filter as WSFilter
+            source = WSFilter(source)
+        if self.omit_optional_tags:
+            from markuptree.filters.optionaltags import Filter as OptFilter
+            source = OptFilter(source)
+        return source
+
     def serialize(
         self, treewalker: Any, encoding: Optional[str] = None
     ) -> Iterator[str]:
         """Yield HTML string fragments from a treewalker token stream."""
         in_cdata = False
+        in_rcdata = False
         self.errors = []
+
+        treewalker = self._apply_filters(treewalker, encoding)
 
         for token in treewalker:
             ttype = token["type"]
@@ -113,12 +135,14 @@ class HTMLSerializer:
                 namespace = token.get("namespace", _HTML_NS)
                 attrs = token.get("data", {})
                 in_cdata = name in ("script", "style")
+                in_rcdata = name in ("title", "textarea")
 
                 yield self._serialize_tag(name, namespace, attrs, ttype == "EmptyTag")
 
             elif ttype == "EndTag":
                 name = token["name"]
                 in_cdata = False
+                in_rcdata = False
                 yield f"</{name}>"
 
             elif ttype in ("Characters", "SpaceCharacters"):
@@ -133,6 +157,11 @@ class HTMLSerializer:
                         flags=re.IGNORECASE,
                     )
                     yield data
+                elif in_rcdata:
+                    if self.escape_rcdata:
+                        yield _escape_text(data)
+                    else:
+                        yield data
                 else:
                     yield _escape_text(data)
 
@@ -146,8 +175,20 @@ class HTMLSerializer:
             elif ttype == "Entity":
                 name = token["name"]
                 if self.resolve_entities:
-                    # Try to resolve; fallback to raw.
-                    yield f"&{name};"
+                    # Resolve named entity to its character equivalent.
+                    # Try with trailing semicolon first (html5 entity table).
+                    key = f"{name};"
+                    if key in html.entities.html5:
+                        yield html.entities.html5[key]
+                    elif name in html.entities.html5:
+                        yield html.entities.html5[name]
+                    else:
+                        # Fallback: try codepoint2name reverse lookup.
+                        cp = html.entities.name2codepoint.get(name)
+                        if cp is not None:
+                            yield chr(cp)
+                        else:
+                            yield f"&{name};"
                 else:
                     yield f"&{name};"
 
