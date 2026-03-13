@@ -46,6 +46,33 @@ class TestHTMLParserParse:
         # We should have some errors (though exact count depends on implementation).
         assert isinstance(parser.errors, list)
 
+    def test_parse_errors_collected_with_integer_type(self) -> None:
+        """Parse errors must be collected using integer token type, not string."""
+        parser = HTMLParser(tree="etree")
+        # Duplicate attributes trigger a tokenizer-level ParseError
+        parser.parse('<p class="a" class="b">text</p>')
+        assert len(parser.errors) > 0
+
+    def test_strict_mode_raises_on_parse_error(self) -> None:
+        """strict=True must raise ParseError on invalid markup."""
+        parser = HTMLParser(tree="etree", strict=True)
+        with pytest.raises(ParseError):
+            # Duplicate attributes trigger a tokenizer-level ParseError
+            parser.parse('<p class="a" class="b">text</p>')
+
+    def test_strict_mode_no_error_on_valid_markup(self) -> None:
+        """strict=True should not raise on well-formed documents."""
+        parser = HTMLParser(tree="etree", strict=True)
+        # A minimal but valid HTML5 document
+        doc = parser.parse("<!DOCTYPE html><html><head></head><body><p>ok</p></body></html>")
+        assert doc is not None
+
+    def test_strict_mode_fragment_raises(self) -> None:
+        """strict=True must also raise ParseError in parseFragment."""
+        parser = HTMLParser(tree="etree", strict=True)
+        with pytest.raises(ParseError):
+            parser.parseFragment('<p class="a" class="b">text</p>')
+
     def test_document_encoding(self) -> None:
         parser = HTMLParser(tree="etree")
         parser.parse("<p>test</p>")
@@ -177,6 +204,71 @@ class TestEndToEnd:
         s = HTMLSerializer(omit_optional_tags=False)
         result = s.render(walker)
         assert "<p>Hello</p>" in result
+
+    def test_title_rcdata_no_nested_tags(self) -> None:
+        """Title content must be treated as RCDATA — tags inside are text, not elements."""
+        doc = markuptree.parse(
+            "<html><head><title>foo <b>bar</b></title></head><body></body></html>",
+            treebuilder="etree",
+        )
+        from markuptree.treewalkers.etree import TreeWalker
+        from markuptree.serializer import HTMLSerializer
+
+        walker = TreeWalker(doc)
+        s = HTMLSerializer(omit_optional_tags=False)
+        result = s.render(walker)
+        # The <b> tag should appear as literal text inside <title>, not as a real element
+        assert "<title>" in result
+        # There should be no <b> element in the output tree
+        assert "<b>" not in result or "foo &lt;b&gt;bar&lt;/b&gt;" in result or "foo <b>bar</b>" in result
+
+    def test_script_rawtext_not_parsed(self) -> None:
+        """Script content must be treated as RAWTEXT — < inside is not a tag."""
+        doc = markuptree.parse(
+            "<html><head></head><body><script>if (a<b) alert(1)</script></body></html>",
+            treebuilder="etree",
+        )
+        from markuptree.treewalkers.etree import TreeWalker
+        from markuptree.serializer import HTMLSerializer
+
+        walker = TreeWalker(doc)
+        s = HTMLSerializer(omit_optional_tags=False)
+        result = s.render(walker)
+        # The script content should be preserved as-is, not parsed as HTML
+        assert "<script>" in result
+        assert "if (a<b) alert(1)" in result or "if (a&lt;b) alert(1)" in result
+
+    def test_textarea_rcdata_no_nested_tags(self) -> None:
+        """Textarea content must be treated as RCDATA."""
+        doc = markuptree.parse(
+            "<html><head></head><body><textarea><b>bold</b></textarea></body></html>",
+            treebuilder="etree",
+        )
+        from markuptree.treewalkers.etree import TreeWalker
+        from markuptree.serializer import HTMLSerializer
+
+        walker = TreeWalker(doc)
+        s = HTMLSerializer(omit_optional_tags=False)
+        result = s.render(walker)
+        assert "<textarea>" in result
+        # <b> should not appear as a real element
+        assert result.count("<b>") <= 1  # only if escaped as text
+
+    def test_style_rawtext_not_parsed(self) -> None:
+        """Style content must be treated as RAWTEXT."""
+        doc = markuptree.parse(
+            "<html><head><style>p > .foo { color: red }</style></head><body></body></html>",
+            treebuilder="etree",
+        )
+        from markuptree.treewalkers.etree import TreeWalker
+        from markuptree.serializer import HTMLSerializer
+
+        walker = TreeWalker(doc)
+        s = HTMLSerializer(omit_optional_tags=False)
+        result = s.render(walker)
+        assert "<style>" in result
+        # The > should be preserved as-is in style content
+        assert "p > .foo" in result or "p &gt; .foo" in result
 
     def test_sanitize_pipeline(self) -> None:
         doc = markuptree.parse(

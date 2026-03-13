@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from markuptree.constants import tokenTypes
 from markuptree.exceptions import ParseError, SerializeError  # noqa: F401
 
 __version__ = "0.1.0"
@@ -95,10 +96,13 @@ class HTMLParser:
         self._documentEncoding = input_stream.documentEncoding
 
         tokenizer = HTMLTokenizer(input_stream)
+        tb.tokenizer = tokenizer
         for token in tokenizer:
             ttype = token.get("type")
-            if ttype == "ParseError":
+            if ttype == tokenTypes["ParseError"]:
                 self._errors.append((token.get("data", ""),))
+                if self.strict:
+                    raise ParseError(token.get("data", ""))
             tb.processToken(token)
 
         return tb.getDocument()
@@ -122,10 +126,13 @@ class HTMLParser:
         self._documentEncoding = input_stream.documentEncoding
 
         tokenizer = HTMLTokenizer(input_stream)
+        tb.tokenizer = tokenizer
         for token in tokenizer:
             ttype = token.get("type")
-            if ttype == "ParseError":
+            if ttype == tokenTypes["ParseError"]:
                 self._errors.append((token.get("data", ""),))
+                if self.strict:
+                    raise ParseError(token.get("data", ""))
             tb.processToken(token)
 
         return tb.getFragment()

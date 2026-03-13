@@ -170,6 +170,7 @@ class TreeBuilder:
         self.originalInsertionMode: Optional[str] = None
         self.templateInsertionModes: List[str] = []
         self.framesetOK = True
+        self.tokenizer: Any = None
         self.fosterParenting = False
         self.pendingTableCharacters: List[str] = []
         self._parseErrors: List[str] = []
@@ -1001,6 +1002,8 @@ class TreeBuilder:
 
         if name == "textarea":
             self.insertElement(token)
+            if self.tokenizer is not None:
+                self.tokenizer.state = "rcdata"
             self.framesetOK = False
             self.originalInsertionMode = self.insertionMode
             self.insertionMode = "text"
@@ -2007,5 +2010,10 @@ class TreeBuilder:
     def _parseRCDataRawtext(self, token: Dict[str, Any], content_type: str) -> None:
         """Handle RCDATA/RAWTEXT elements (title, style, script, etc.)."""
         self.insertElement(token)
+        if self.tokenizer is not None:
+            if content_type == "RCDATA":
+                self.tokenizer.state = "rcdata"
+            else:
+                self.tokenizer.state = "rawtext"
         self.originalInsertionMode = self.insertionMode
         self.insertionMode = "text"

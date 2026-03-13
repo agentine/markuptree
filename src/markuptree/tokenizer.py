@@ -32,6 +32,7 @@ class HTMLTokenizer:
         self.errors: List[str] = []
         self._pending_tokens: List[_TokenDict] = []
         self._temp_buffer = ""
+        self._last_start_tag_name: Optional[str] = None
 
     def __iter__(self) -> Iterator[_TokenDict]:
         while True:
@@ -74,6 +75,8 @@ class HTMLTokenizer:
         assert tok is not None
         # Finalize current attribute if any.
         self._finalize_attr()
+        if tok["type"] == tokenTypes["StartTag"]:
+            self._last_start_tag_name = tok["name"]
         self.current_token = None
         return tok
 
@@ -833,17 +836,19 @@ class HTMLTokenizer:
 
     def _state_rcdataEndTagName(self) -> Optional[_TokenDict]:
         c = self.stream.char()
-        if c in spaceCharacters:
+        assert self.current_token is not None
+        tag_name = self.current_token["name"]
+        is_appropriate = tag_name == self._last_start_tag_name
+        if c in spaceCharacters and is_appropriate:
             self.state = "beforeAttrName"
             return self._next_token()
-        if c == "/":
+        if c == "/" and is_appropriate:
             self.state = "selfClosingStartTag"
             return self._next_token()
-        if c == ">":
+        if c == ">" and is_appropriate:
             self.state = "data"
             return self._emit_current_token()
         if c is not None and c in asciiLetters:
-            assert self.current_token is not None
             self.current_token["name"] += c.lower()
             self._temp_buffer += c
             return self._next_token()
@@ -895,17 +900,19 @@ class HTMLTokenizer:
 
     def _state_rawtextEndTagName(self) -> Optional[_TokenDict]:
         c = self.stream.char()
-        if c in spaceCharacters:
+        assert self.current_token is not None
+        tag_name = self.current_token["name"]
+        is_appropriate = tag_name == self._last_start_tag_name
+        if c in spaceCharacters and is_appropriate:
             self.state = "beforeAttrName"
             return self._next_token()
-        if c == "/":
+        if c == "/" and is_appropriate:
             self.state = "selfClosingStartTag"
             return self._next_token()
-        if c == ">":
+        if c == ">" and is_appropriate:
             self.state = "data"
             return self._emit_current_token()
         if c is not None and c in asciiLetters:
-            assert self.current_token is not None
             self.current_token["name"] += c.lower()
             self._temp_buffer += c
             return self._next_token()
