@@ -5,7 +5,7 @@
 **Target:** [html5lib](https://github.com/html5lib/html5lib-python) — the only pure-Python HTML5-compliant parser
 **Package:** `markuptree` on PyPI
 **License:** MIT
-**Python:** 3.9+
+**Python:** 3.10+
 **Dependencies:** Zero required (optional: lxml, chardet)
 
 ## Why Replace html5lib
